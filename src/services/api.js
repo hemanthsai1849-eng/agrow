@@ -19,16 +19,17 @@ const DELAY = 100;
 const simulateNetwork = (data) => new Promise(resolve => setTimeout(() => resolve(data), DELAY));
 
 export const AuthAPI = {
-  login: async (phone, otp) => {
+  login: async (phone, otp, name) => {
     // Keep auth mocked in local storage for simplicity so testers don't need real SMS
     if (otp === '1234') { 
-      const user = { phone, verified: true, name: 'Farmer User' };
+      const user = { phone, verified: true, name: name };
       localStorage.setItem('agrolink-user', JSON.stringify(user));
       
       // Log the user into Firestore to track logins
       const userRef = doc(db, 'users', phone);
       await setDoc(userRef, { 
-        phone: phone, 
+        phone: phone,
+        name: name,
         lastLogin: Date.now(), 
         role: 'farmer' 
       }, { merge: true });
@@ -38,6 +39,23 @@ export const AuthAPI = {
     throw new Error('Invalid OTP. Try 1234');
   },
   getUser: async () => simulateNetwork(JSON.parse(localStorage.getItem('agrolink-user'))),
+  updateUserName: async (phone, name) => {
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (user && user.phone === phone) {
+      user.name = name;
+      localStorage.setItem('agrolink-user', JSON.stringify(user));
+      
+      // Update in Firestore as well
+      const userRef = doc(db, 'users', phone);
+      await setDoc(userRef, { 
+        name: name,
+        updatedAt: Date.now()
+      }, { merge: true });
+
+      return simulateNetwork({ success: true, user });
+    }
+    throw new Error('User not authenticated');
+  },
   logout: async () => {
     localStorage.removeItem('agrolink-user');
     return simulateNetwork({ success: true });
@@ -46,12 +64,20 @@ export const AuthAPI = {
 
 export const CropAPI = {
   getCrops: async () => {
-    const querySnapshot = await getDocs(collection(db, 'crops'));
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) return [];
+    
+    const q = query(collection(db, 'crops'), where('userPhone', '==', user.phone));
+    const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   },
   addCrop: async (cropData) => {
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) throw new Error('User not authenticated');
+    
     const newCrop = {
       ...cropData,
+      userPhone: user.phone,
       status: 'Planted',
       availableQty: Number(cropData.totalQty),
       isListedForSale: false,
@@ -69,7 +95,11 @@ export const CropAPI = {
 
 export const OfferAPI = {
   getOffers: async () => {
-    const querySnapshot = await getDocs(collection(db, 'offers'));
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) return [];
+    
+    const q = query(collection(db, 'offers'), where('userPhone', '==', user.phone));
+    const querySnapshot = await getDocs(q);
     const offers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     
     // Auto-expire
@@ -84,6 +114,9 @@ export const OfferAPI = {
   },
   
   listCropForSale: async (cropId, qty, price) => {
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) throw new Error('User not authenticated');
+    
     const cropRef = doc(db, 'crops', cropId);
     await updateDoc(cropRef, {
       isListedForSale: true,
@@ -100,6 +133,7 @@ export const OfferAPI = {
     
     await addDoc(collection(db, 'offers'), {
       cropId: cropId,
+      userPhone: user.phone,
       buyerName: randomBuyer,
       buyerPhone: '9876543210',
       qty: Number(qty),
@@ -110,6 +144,7 @@ export const OfferAPI = {
     });
 
     await addDoc(collection(db, 'alerts'), {
+      userPhone: user.phone,
       type: 'info',
       title: 'New Offer Received!',
       message: `${randomBuyer} sent an offer for your ${cropData.name}.`,
@@ -121,6 +156,9 @@ export const OfferAPI = {
   },
 
   acceptOffer: async (offerId) => {
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) throw new Error('User not authenticated');
+    
     const offerRef = doc(db, 'offers', offerId);
     const offerSnap = await getDoc(offerRef);
     if (!offerSnap.exists()) throw new Error("Offer not found");
@@ -142,6 +180,7 @@ export const OfferAPI = {
 
     const newOrder = {
       offerId: offerId,
+      userPhone: user.phone,
       buyerName: offer.buyerName,
       buyerPhone: offer.buyerPhone,
       cropName: crop.name,
@@ -155,6 +194,7 @@ export const OfferAPI = {
     const orderDoc = await addDoc(collection(db, 'orders'), newOrder);
 
     await addDoc(collection(db, 'alerts'), {
+      userPhone: user.phone,
       type: 'info', 
       title: 'Offer Accepted', 
       message: `You accepted an offer for ${offer.qty}q of ${crop.name}. Tracker created in Orders!`, 
@@ -178,10 +218,17 @@ export const OfferAPI = {
 
 export const OrderAPI = {
   getOrders: async () => {
-    const snap = await getDocs(collection(db, 'orders'));
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) return [];
+    
+    const q = query(collection(db, 'orders'), where('userPhone', '==', user.phone));
+    const snap = await getDocs(q);
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   },
   updateOrderStatus: async (orderId, newStatus) => {
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) throw new Error('User not authenticated');
+    
     const orderRef = doc(db, 'orders', orderId);
     const orderSnap = await getDoc(orderRef);
     if(orderSnap.exists()) {
@@ -193,13 +240,21 @@ export const OrderAPI = {
        await updateDoc(orderRef, updates);
        
        await addDoc(collection(db, 'alerts'), {
-          type: 'info', title: 'Order Update', message: `Order for ${order.cropName} is now ${newStatus}.`, time: 'Just now', createdAt: Date.now()
+          userPhone: user.phone,
+          type: 'info', 
+          title: 'Order Update', 
+          message: `Order for ${order.cropName} is now ${newStatus}.`, 
+          time: 'Just now', 
+          createdAt: Date.now()
        });
        return true;
     }
     return false;
   },
   updatePayment: async (orderId, paymentStatus) => {
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) throw new Error('User not authenticated');
+    
     const orderRef = doc(db, 'orders', orderId);
     const orderSnap = await getDoc(orderRef);
     if(orderSnap.exists()) {
@@ -217,11 +272,19 @@ export const OrderAPI = {
 
 export const SystemAPI = {
   getAlerts: async () => {
-    const snap = await getDocs(collection(db, 'alerts'));
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) return [];
+    
+    const q = query(collection(db, 'alerts'), where('userPhone', '==', user.phone));
+    const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.createdAt - a.createdAt);
   },
   getEarnings: async () => {
-    const snap = await getDocs(collection(db, 'orders'));
+    const user = JSON.parse(localStorage.getItem('agrolink-user'));
+    if (!user) return 0;
+    
+    const q = query(collection(db, 'orders'), where('userPhone', '==', user.phone));
+    const snap = await getDocs(q);
     let total = 0;
     snap.forEach(doc => {
       const data = doc.data();

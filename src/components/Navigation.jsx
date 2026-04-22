@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Sprout, TrendingUp, Bell, Store } from 'lucide-react';
+import { Home, Sprout, TrendingUp, Bell, Store, User } from 'lucide-react';
 import './Navigation.css';
 
 export default function Navigation({ currentScreen, setCurrentScreen }) {
@@ -8,7 +8,7 @@ export default function Navigation({ currentScreen, setCurrentScreen }) {
     { id: 'crops', label: 'My Crops', icon: Sprout },
     { id: 'market', label: 'Prices', icon: TrendingUp },
     { id: 'buyers', label: 'Buyers', icon: Store },
-    { id: 'alerts', label: 'Alerts', icon: Bell },
+    { id: 'profile', label: 'Profile', icon: User },
   ];
 
   return (

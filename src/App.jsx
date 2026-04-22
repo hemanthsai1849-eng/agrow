@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import HomeScreen from './components/HomeScreen';
 import CropManagementScreen from './components/CropManagementScreen';
 import MarketPricesScreen from './components/MarketPricesScreen';
-import AlertsScreen from './components/AlertsScreen';
 import BuyersScreen from './components/BuyersScreen';
 import OrdersScreen from './components/OrdersScreen';
+import ProfileScreen from './components/ProfileScreen';
 import Navigation from './components/Navigation';
 import AuthScreen from './components/AuthScreen';
 import useOnlineStatus from './useOnlineStatus';
@@ -39,8 +39,8 @@ function App() {
         return <OrdersScreen />;
       case 'buyers':
         return <BuyersScreen />;
-      case 'alerts':
-        return <AlertsScreen />;
+      case 'profile':
+        return <ProfileScreen setScreen={setCurrentScreen} />;
       default:
         return <HomeScreen setScreen={setCurrentScreen} />;
     }
